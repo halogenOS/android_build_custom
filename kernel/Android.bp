@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package {
+    default_applicable_licenses: ["build_custom_kernel_license"],
+}
+
+license {
+    name: "build_custom_kernel_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    copyright_notice: "Copyright (C) 2026 The halogenOS Project",
+    license_text: [":Apache-2.0-License-Text"],
+}
+
+rust_defaults {
+    name: "merge_dtbs_defaults",
+    crate_root: "merge_dtbs/main.rs",
+    srcs: ["merge_dtbs/*.rs"],
+    use_expansive_default_srcs: false,
+    edition: "2021",
+    lints: "android",
+    clippy_lints: "android",
+    rustlibs: ["libclap"],
+}
+
+rust_binary_host {
+    name: "merge_dtbs",
+    defaults: ["merge_dtbs_defaults"],
+    required: [
+        "fdtget",
+        "fdtoverlay",
+        "fdtoverlaymerge",
+        "fdtput",
+        "ufdt_apply_overlay",
+    ],
+}
+
+rust_test_host {
+    name: "merge_dtbs_test",
+    defaults: ["merge_dtbs_defaults"],
+}
