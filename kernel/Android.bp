@@ -39,3 +39,81 @@ rust_test_host {
     name: "merge_dtbs_test",
     defaults: ["merge_dtbs_defaults"],
 }
+
+license {
+    name: "linux_kernel_license",
+    visibility: ["//visibility:public"],
+    license_kinds: ["SPDX-license-identifier-GPL-2.0-only"],
+}
+
+license {
+    name: "linux_kernel_headers_license",
+    visibility: ["//visibility:public"],
+    license_kinds: [
+        "SPDX-license-identifier-GPL-2.0-only",
+        "SPDX-license-identifier-Linux-syscall-note",
+    ],
+}
+
+bootstrap_go_package {
+    name: "soong-custom-kernel",
+    pkgPath: "custom/soong/kernel",
+    deps: [
+        "blueprint",
+        "blueprint-gobtools",
+        "blueprint-proptools",
+        "soong",
+        "soong-android",
+        "soong-cc",
+        "soong-cc-config",
+    ],
+    srcs: [
+        "kernel_build.go",
+        "setting_names.go",
+        "kernel_build_rules.go",
+        "rule_shell.go",
+        "kernel_uapi_headers.go",
+        "kernel_enc.go",
+    ],
+    testSrcs: [
+        "kernel_build_test.go",
+        "kernel_uapi_headers_test.go",
+    ],
+    pluginFor: ["soong_build"],
+}
+
+blueprint_go_binary {
+    name: "kbuild_input_check",
+    deps: ["soong-makedeps"],
+    srcs: [
+        "kbuild_input_check/kbuild_input_check.go",
+        "kbuild_input_check/cmd_files.go",
+        "kbuild_input_check/walk.go",
+    ],
+    testSrcs: ["kbuild_input_check/kbuild_input_check_test.go"],
+}
+
+blueprint_go_binary {
+    name: "kernel_output_files",
+    srcs: ["kernel_output_files/kernel_output_files.go"],
+    testSrcs: ["kernel_output_files/kernel_output_files_test.go"],
+}
+
+kernel_uapi_headers {
+    name: "generated_kernel_includes",
+    licenses: ["linux_kernel_headers_license"],
+}
+
+cc_defaults {
+    name: "generated_kernel_header_defaults",
+    licenses: ["linux_kernel_headers_license"],
+    generated_headers: ["generated_kernel_includes"],
+    export_generated_headers: ["generated_kernel_includes"],
+    vendor_available: true,
+    recovery_available: true,
+}
+
+cc_library_headers {
+    name: "generated_kernel_headers",
+    defaults: ["generated_kernel_header_defaults"],
+}
