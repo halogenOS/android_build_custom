@@ -61,11 +61,14 @@ bootstrap_go_package {
     deps: [
         "blueprint",
         "blueprint-gobtools",
+        "blueprint-pathtools",
         "blueprint-proptools",
         "soong",
         "soong-android",
         "soong-cc",
         "soong-cc-config",
+        "soong-kernel",
+        "soong-kernel-common",
     ],
     srcs: [
         "kernel_build.go",
@@ -74,10 +77,14 @@ bootstrap_go_package {
         "rule_shell.go",
         "kernel_uapi_headers.go",
         "kernel_enc.go",
+        "kernel_partition_modules.go",
+        "replaced_install_dirs.go",
     ],
     testSrcs: [
         "kernel_build_test.go",
         "kernel_uapi_headers_test.go",
+        "kernel_partition_modules_test.go",
+        "replaced_install_dirs_test.go",
     ],
     pluginFor: ["soong_build"],
 }
@@ -97,6 +104,12 @@ blueprint_go_binary {
     name: "kernel_output_files",
     srcs: ["kernel_output_files/kernel_output_files.go"],
     testSrcs: ["kernel_output_files/kernel_output_files_test.go"],
+}
+
+blueprint_go_binary {
+    name: "kernel_partition_modules_builder",
+    srcs: ["kernel_partition_modules_builder/kernel_partition_modules_builder.go"],
+    testSrcs: ["kernel_partition_modules_builder/kernel_partition_modules_builder_test.go"],
 }
 
 kernel_uapi_headers {

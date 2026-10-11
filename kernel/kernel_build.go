@@ -28,6 +28,8 @@ func init() {
 func registerBuildComponents(ctx android.RegistrationContext) {
 	ctx.RegisterModuleType("kernel_build", KernelBuildFactory)
 	ctx.RegisterModuleType("kernel_uapi_headers", KernelUapiHeadersFactory)
+	ctx.RegisterModuleType("kernel_partition_modules", KernelPartitionModulesFactory)
+	ctx.RegisterSingletonType("replaced_install_dirs", replacedInstallDirsFactory)
 }
 
 // Paths of the tree that the kernel rules use. Every path below prebuilts/build-tools in the
