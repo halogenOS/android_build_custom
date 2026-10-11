@@ -59,6 +59,7 @@ bootstrap_go_package {
     name: "soong-custom-kernel",
     pkgPath: "custom/soong/kernel",
     deps: [
+        "androidmk-parser",
         "blueprint",
         "blueprint-gobtools",
         "blueprint-pathtools",
@@ -69,6 +70,7 @@ bootstrap_go_package {
         "soong-cc-config",
         "soong-kernel",
         "soong-kernel-common",
+        "soong-phony",
     ],
     srcs: [
         "kernel_build.go",
@@ -79,12 +81,16 @@ bootstrap_go_package {
         "kernel_enc.go",
         "kernel_partition_modules.go",
         "replaced_install_dirs.go",
+        "board_kernel_adapter.go",
+        "board_kernel_build.go",
+        "board_kernel_partitions.go",
     ],
     testSrcs: [
         "kernel_build_test.go",
         "kernel_uapi_headers_test.go",
         "kernel_partition_modules_test.go",
         "replaced_install_dirs_test.go",
+        "board_kernel_adapter_test.go",
     ],
     pluginFor: ["soong_build"],
 }
@@ -129,4 +135,8 @@ cc_defaults {
 cc_library_headers {
     name: "generated_kernel_headers",
     defaults: ["generated_kernel_header_defaults"],
+}
+
+board_kernel_adapter {
+    name: "board_kernel_adapter",
 }

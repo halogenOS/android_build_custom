@@ -29,6 +29,7 @@ func registerBuildComponents(ctx android.RegistrationContext) {
 	ctx.RegisterModuleType("kernel_build", KernelBuildFactory)
 	ctx.RegisterModuleType("kernel_uapi_headers", KernelUapiHeadersFactory)
 	ctx.RegisterModuleType("kernel_partition_modules", KernelPartitionModulesFactory)
+	ctx.RegisterModuleType("board_kernel_adapter", BoardKernelAdapterFactory)
 	ctx.RegisterSingletonType("replaced_install_dirs", replacedInstallDirsFactory)
 }
 
