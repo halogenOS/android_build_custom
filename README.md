@@ -2,8 +2,10 @@
 
 Build-system glue for the product layer: the Soong kernel build, whose module types
 `kernel_build` and `kernel_uapi_headers` build a kernel for a device and export its user-space
-headers, with `kernel_partition_modules` for the kernel modules of a partition, and the Qualcomm
-path map. Nothing here defines a product; product configuration lives in product/custom.
+headers, with `kernel_partition_modules` for the kernel modules of a partition, and
+board_functions.mk, which defines the Make functions `is-board-platform-in-list`,
+`is-vendor-board-platform` and `is-platform-sdk-version-at-least` called by the Qualcomm
+repositories. Nothing here defines a product; product configuration lives in product/custom.
 
 ## Building a kernel for a device
 
