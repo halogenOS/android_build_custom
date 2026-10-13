@@ -78,6 +78,7 @@ bootstrap_go_package {
         "kernel_build_rules.go",
         "rule_shell.go",
         "kernel_uapi_headers.go",
+        "kernel_uapi_header_dirs.go",
         "kernel_enc.go",
         "kernel_partition_modules.go",
         "replaced_install_dirs.go",
@@ -88,6 +89,7 @@ bootstrap_go_package {
     testSrcs: [
         "kernel_build_test.go",
         "kernel_uapi_headers_test.go",
+        "kernel_uapi_header_dirs_test.go",
         "kernel_partition_modules_test.go",
         "replaced_install_dirs_test.go",
         "board_kernel_adapter_test.go",

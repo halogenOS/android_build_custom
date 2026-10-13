@@ -28,6 +28,7 @@ func init() {
 func registerBuildComponents(ctx android.RegistrationContext) {
 	ctx.RegisterModuleType("kernel_build", KernelBuildFactory)
 	ctx.RegisterModuleType("kernel_uapi_headers", KernelUapiHeadersFactory)
+	ctx.RegisterModuleType("kernel_uapi_header_dirs", KernelUapiHeaderDirsFactory)
 	ctx.RegisterModuleType("kernel_partition_modules", KernelPartitionModulesFactory)
 	ctx.RegisterModuleType("board_kernel_adapter", BoardKernelAdapterFactory)
 	ctx.RegisterSingletonType("replaced_install_dirs", replacedInstallDirsFactory)
@@ -281,22 +282,28 @@ var kernelArches = map[android.ArchType][]string{
 	android.Riscv64: {"riscv"},
 }
 
-// checkPathList checks a property that lists paths: each entry has to be a clean relative path
-// and may be named once. further runs for every entry that passes both checks, with the entry's
-// index, for the checks of one property that go beyond these two.
-func (k *kernelBuild) checkPathList(ctx android.ModuleContext, prop kernelProperty, list []string, further func(i int, p string)) {
+// checkPaths checks a list of paths whose name appears in the messages: each entry has to be a
+// clean relative path and may be named once. errorf reports an entry that fails either check. The
+// function further, called for every entry that passes both checks with the index of the entry,
+// handles the checks of one list that go beyond these two.
+func checkPaths(list []string, name string, errorf func(format string, args ...any), further func(i int, p string)) {
 	seen := make(map[string]bool)
 	for i, p := range list {
 		switch {
 		case !isCleanRelative(p):
-			k.errorf(ctx, prop, "%q is not a clean relative path. Write the entry without ., .. and extra slashes.", p)
+			errorf("%q is not a clean relative path. Write the entry without ., .. and extra slashes.", p)
 		case seen[p]:
-			k.errorf(ctx, prop, "%q is listed twice. Remove the second entry from %s.", p, k.name(prop))
+			errorf("%q is listed twice. Remove the second entry from %s.", p, name)
 		case further != nil:
 			further(i, p)
 		}
 		seen[p] = true
 	}
+}
+
+// checkPathList checks a property of the module that lists paths with checkPaths.
+func (k *kernelBuild) checkPathList(ctx android.ModuleContext, prop kernelProperty, list []string, further func(i int, p string)) {
+	checkPaths(list, k.name(prop), func(format string, args ...any) { k.errorf(ctx, prop, format, args...) }, further)
 }
 
 // checkProperties reports every malformed or missing property value as an analysis error naming

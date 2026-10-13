@@ -284,6 +284,24 @@ func TestCheckHeaderValues(t *testing.T) {
 	}
 }
 
+// TestHeaderCmdFiles checks that the header mode reads the install commands of the headers installed
+// below usr, also those installed outside usr/include. It also checks that the header mode never
+// reads an install command outside usr.
+func TestHeaderCmdFiles(t *testing.T) {
+	staging := tree(t, map[string]string{
+		"usr/include/linux/.a.h.cmd": "",
+		"usr/include/linux/a.h":      "a",
+		"usr/extra/include/.b.h.cmd": "",
+		"usr/extra/include/b.h":      "b",
+		"scripts/.c.h.cmd":           "",
+	})
+	files, err := headerCmdFiles(staging)
+	want := []string{staging + "/usr/extra/include/.b.h.cmd", staging + "/usr/include/linux/.a.h.cmd"}
+	if err != nil || !reflect.DeepEqual(files, want) {
+		t.Errorf("got %q, %v, want %q", files, err, want)
+	}
+}
+
 func identityLines(t *testing.T, cache string, args ...string) string {
 	t.Helper()
 	var out bytes.Buffer

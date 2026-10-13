@@ -261,7 +261,7 @@ func runHeaders(args []string) error {
 	if err != nil {
 		return err
 	}
-	files, err := findCmdFiles(filepath.Join(*staging, "usr/include"), ".h.cmd")
+	files, err := headerCmdFiles(*staging)
 	if err != nil {
 		return err
 	}
@@ -270,6 +270,12 @@ func runHeaders(args []string) error {
 		return err
 	}
 	return headerError(checkHeaderValues(values, *staging, allowed), *nextStep)
+}
+
+// headerCmdFiles returns the .h.cmd files written by headers_install below usr of the staging
+// directory, including those outside usr/include.
+func headerCmdFiles(staging string) ([]string, error) {
+	return findCmdFiles(filepath.Join(staging, "usr"), ".h.cmd")
 }
 
 // headerProblems are the installed headers whose source is not checked: unknownForm, those whose

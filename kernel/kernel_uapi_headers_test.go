@@ -4,6 +4,7 @@
 package kernel
 
 import (
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -76,8 +77,8 @@ func TestHeaderRule(t *testing.T) {
 		`"$KIC" headers -make "$MAKE" -staging "$MOD"/staging -next-step 'Add the directory that contains these files to extra_source_dirs.' `+
 			`-allow "$T"/kernel/k -allow "$T"/kernel/dts -allow "$T"/kernel/mods`,
 		`build/custom/kernel/tools/clean_headers.sh "$MOD"/staging`,
-		`mkdir -p "$MOD"/gen/usr/include`, "rsync -rcn --delete --itemize-changes", `: > "$MOD"/gen.changed`,
-		`rsync -rc --delete "$MOD"/staging/usr/include/ "$MOD"/gen/usr/include/`,
+		`mkdir -p "$MOD"/gen/usr`, "rsync -rcn --delete --itemize-changes", `: > "$MOD"/gen.changed`,
+		`rsync -rc --delete "$MOD"/staging/usr/ "$MOD"/gen/usr/`,
 		`"$KIC" links -next-step 'Add the directory that contains these files to extra_source_dirs.' `+
 			`-allow "$T"/kernel/k -allow "$T"/kernel/dts -allow "$T"/kernel/mods kernel/k/.scmversion`,
 		`write_depfile "$MOD"/gen.d "$STAMP"`, "check_unchanged",
@@ -98,12 +99,8 @@ func TestHeaderRule(t *testing.T) {
 	}
 
 	h := headersModule(t, result, "k-headers")
-	var dirs []string
-	for _, d := range h.GeneratedHeaderDirs() {
-		dirs = append(dirs, strings.TrimPrefix(d.String(), h.stamp.String()[:strings.Index(h.stamp.String(), "k-headers/")]))
-	}
-	if strings.Join(dirs, " ") != "k-headers/gen/usr/include k-headers/gen/usr/include/audio" {
-		t.Errorf("include directories: %v", dirs)
+	if dirs := exportedDirs(h, h); !reflect.DeepEqual(dirs, []string{"include"}) {
+		t.Errorf("include directories: %q", dirs)
 	}
 	if deps := h.GeneratedTriggerDeps(); len(deps) != 1 || deps[0].String() != h.stamp.String() {
 		t.Errorf("trigger dependencies: %v", deps)
@@ -111,6 +108,17 @@ func TestHeaderRule(t *testing.T) {
 	if deps := h.GeneratedDeps(); len(deps) != 1 || deps[0].String() != h.stamp.String() {
 		t.Errorf("generated dependencies: %v", deps)
 	}
+}
+
+// exportedDirs returns the include directories of a generator, relative to gen/usr of the header
+// module h.
+func exportedDirs(g android.SourceFileGenerator, h *kernelUapiHeaders) []string {
+	usr := strings.TrimSuffix(h.stamp.String(), "headers.stamp") + "usr/"
+	var dirs []string
+	for _, d := range g.GeneratedHeaderDirs() {
+		dirs = append(dirs, strings.TrimPrefix(d.String(), usr))
+	}
+	return dirs
 }
 
 func TestHeaderErrorRules(t *testing.T) {
@@ -238,13 +246,20 @@ cc_library_static {
 		{"libvendor_user", "android_vendor_arm64_armv8-a_static"},
 		{"librecovery_user", "android_recovery_arm64_armv8-a_static"},
 	} {
-		compile := result.ModuleForTests(t, v.name, v.variant).Output("obj/user.o")
-		if !strings.Contains(strings.Join(compile.Implicits.Strings(), " "), "generated_kernel_includes/gen/headers.stamp") {
-			t.Errorf("%s: the stamp is no implicit input of the compile rule: %v", v.name, compile.Implicits)
-		}
-		if !strings.Contains(compile.Args["cFlags"], "generated_kernel_includes/gen/usr/include") {
-			t.Errorf("%s: the export directory is no include directory: %s", v.name, compile.Args["cFlags"])
-		}
+		checkCompileUses(t, result, v.name, v.variant, "generated_kernel_includes/gen", "include")
+	}
+}
+
+// checkCompileUses checks that the compile rule of user.c in the variant of a module takes the stamp
+// below gen as an implicit input and the folder dir below gen/usr as an include directory.
+func checkCompileUses(t *testing.T, result *android.TestResult, name, variant, gen, dir string) {
+	t.Helper()
+	compile := result.ModuleForTests(t, name, variant).Output("obj/user.o")
+	if !strings.Contains(strings.Join(compile.Implicits.Strings(), " "), gen+"/headers.stamp") {
+		t.Errorf("%s: the stamp is not an implicit input of the compile rule: %v", name, compile.Implicits)
+	}
+	if !strings.Contains(compile.Args["cFlags"], gen+"/usr/"+dir) {
+		t.Errorf("%s: the folder %s is not an include directory: %s", name, dir, compile.Args["cFlags"])
 	}
 }
 

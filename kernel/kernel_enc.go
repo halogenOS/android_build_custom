@@ -139,3 +139,55 @@ func (r KernelSourcesInfo) GetTypeId() int16 {
 }
 
 // end of kernel_build.go
+
+// begin of kernel_uapi_headers.go
+func init() {
+	KernelUapiHeadersInfoGobRegId = gobtools.RegisterType(func() gobtools.CustomDec { return new(KernelUapiHeadersInfo) })
+}
+
+func (r KernelUapiHeadersInfo) Encode(ctx gobtools.EncContext, buf *bytes.Buffer) error {
+	var err error
+
+	if err = r.Usr.Encode(ctx, buf); err != nil {
+		return err
+	}
+
+	if err = r.Stamp.Encode(ctx, buf); err != nil {
+		return err
+	}
+	return err
+}
+
+func (r KernelUapiHeadersInfo) CustomHash(hasher *proptools.Hasher) error {
+	hasher.WriteString(":kernel.KernelUapiHeadersInfo")
+	hasher.WriteInt(2)
+	if err := r.Usr.CustomHash(hasher); err != nil {
+		return err
+	}
+	if err := r.Stamp.CustomHash(hasher); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *KernelUapiHeadersInfo) Decode(ctx gobtools.EncContext, buf *bytes.Reader) error {
+	var err error
+
+	if err = r.Usr.Decode(ctx, buf); err != nil {
+		return err
+	}
+
+	if err = r.Stamp.Decode(ctx, buf); err != nil {
+		return err
+	}
+
+	return err
+}
+
+var KernelUapiHeadersInfoGobRegId int16
+
+func (r KernelUapiHeadersInfo) GetTypeId() int16 {
+	return KernelUapiHeadersInfoGobRegId
+}
+
+// end of kernel_uapi_headers.go

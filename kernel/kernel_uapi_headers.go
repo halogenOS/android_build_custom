@@ -24,7 +24,7 @@ type kernelUapiHeaders struct {
 
 	properties kernelUapiHeadersProperties
 
-	stamp      android.WritablePath
+	stamp      android.OutputPath
 	headerDirs android.Paths
 
 	// ref is the module reference used, and fromBoard reports that it comes from
@@ -32,6 +32,18 @@ type kernelUapiHeaders struct {
 	ref       string
 	fromBoard bool
 }
+
+// KernelUapiHeadersInfo contains the directory of the installed headers and the stamp that shows a
+// change in them.
+// @auto-generate: gob
+type KernelUapiHeadersInfo struct {
+	// Usr is the directory that contains every header installed below usr.
+	Usr android.OutputPath
+	// Stamp gets a new modification time whenever a header below Usr changed.
+	Stamp android.OutputPath
+}
+
+var KernelUapiHeadersInfoProvider = blueprint.NewProvider[KernelUapiHeadersInfo]()
 
 // KernelUapiHeadersFactory makes a kernel_uapi_headers module: it exports the user-space headers
 // of a kernel_build module's kernel, which headers_install writes, as generated headers.
@@ -105,9 +117,10 @@ func (h *kernelUapiHeaders) DepsMutator(ctx android.BottomUpMutatorContext) {
 func (h *kernelUapiHeaders) GenerateAndroidBuildActions(ctx android.ModuleContext) {
 	h.setRef(ctx)
 	modOut := android.PathForModuleOut(ctx)
+	usr := modOut.Join(ctx, "gen", "usr")
 	h.stamp = modOut.Join(ctx, "gen", "headers.stamp")
-	// usr/include/audio is a header directory of its own, as the previous release exported it.
-	h.headerDirs = android.Paths{modOut.Join(ctx, "gen", "usr", "include"), modOut.Join(ctx, "gen", "usr", "include", "audio")}
+	h.headerDirs = android.Paths{usr.Join(ctx, "include")}
+	android.SetProvider(ctx, KernelUapiHeadersInfoProvider, KernelUapiHeadersInfo{Usr: usr, Stamp: h.stamp})
 	// The stamp is no checkbuild file, so `m checkbuild` reaches no ErrorRule of the header rule.
 	ctx.ModulePhonyFiles(h.stamp)
 	registerGoalPhonies(ctx, h.ExportedToMake(), android.Paths{h.stamp})
@@ -184,11 +197,12 @@ func (h *kernelUapiHeaders) buildHeaderRule(ctx android.ModuleContext, modOut st
 		shq(info.AddSourceDirStep), strings.Join(allow, " "))
 	// 3. The cleaner, run from the tree top.
 	w("%s \"$MOD\"/staging || exit $?\n", shq(cleaner.String()))
-	// 4. The export: gen.changed is created before any file of the export directory changes.
-	b.WriteString(`mkdir -p "$MOD"/gen/usr/include || exit $?
-changes=$(rsync -rcn --delete --itemize-changes "$MOD"/staging/usr/include/ "$MOD"/gen/usr/include/) || exit $?
+	// 4. The export: gen.changed is created before any file of the export directory changes. The
+	// copy contains every header installed below usr.
+	b.WriteString(`mkdir -p "$MOD"/gen/usr || exit $?
+changes=$(rsync -rcn --delete --itemize-changes "$MOD"/staging/usr/ "$MOD"/gen/usr/) || exit $?
 if [ -n "$changes" ]; then : > "$MOD"/gen.changed || exit $?; fi
-rsync -rc --delete "$MOD"/staging/usr/include/ "$MOD"/gen/usr/include/ || exit $?
+rsync -rc --delete "$MOD"/staging/usr/ "$MOD"/gen/usr/ || exit $?
 `)
 	// 5. The symbolic links of the sources may not lead outside the walked directories.
 	w("\"$KIC\" links -next-step %s %s %s || exit $?\n", shq(info.AddSourceDirStep), strings.Join(allow, " "),

@@ -2,7 +2,8 @@
 
 Build-system glue for the product layer: the Soong kernel build, whose module types
 `kernel_build` and `kernel_uapi_headers` build a kernel for a device and export its user-space
-headers, with `kernel_partition_modules` for the kernel modules of a partition, and
+headers, with `kernel_uapi_header_dirs` for chosen folders of those headers,
+`kernel_partition_modules` for the kernel modules of a partition, and
 board_functions.mk, which defines the Make functions `is-board-platform-in-list`,
 `is-vendor-board-platform` and `is-platform-sdk-version-at-least` called by the Qualcomm
 repositories. Nothing here defines a product; product configuration lives in product/custom.
@@ -50,6 +51,14 @@ those modules, and the kernel build adds no check that reports it. Each of these
 its install directory as a whole, and Soong reports any of its own modules or `PRODUCT_COPY_FILES`
 entry that installs into that directory; a Make module of an `Android.mk` that installs into it is
 not checked, since Soong does not see Make modules.
+
+cc modules get the user-space headers of the kernel from `kernel_uapi_headers` modules, such as
+`generated_kernel_includes`, which uses the kernel named by `BOARD_KERNEL_BUILD_MODULE`. Such a
+module copies every header installed by `headers_install` below `usr` and exports `usr/include`. A
+`kernel_uapi_header_dirs` module exports chosen folders below `usr` of a `kernel_uapi_headers`
+module as generated headers: `headers` is the name of that module, and `dirs` lists the folders in
+the order in which they are exported, each a clean relative path listed once. It does not install
+any header itself.
 
 The kernel parts for Pong, as its device tree gives them:
 
