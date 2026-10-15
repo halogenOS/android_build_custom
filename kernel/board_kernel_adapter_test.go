@@ -463,10 +463,6 @@ func TestBoardKernelErrors(t *testing.T) {
 		{func(v map[string]string) {}, []android.FixturePreparer{dtboSize, withKernelVersion("6", "11")},
 			"TARGET_KERNEL_SOURCE kernel/k contains Linux 6.11, and kernels 6.11 and newer are not supported, since their host " +
 				"programs need the host sysroot. Use a kernel source below 6.11."},
-		{func(v map[string]string) {}, []android.FixturePreparer{dtboSize, withKernelVersion("5", "4")},
-			"TARGET_KERNEL_SOURCE kernel/k contains Linux 5.4. Kernels older than 5.10 build with GCC tools unless " +
-				"TARGET_KERNEL_NO_GCC is true, and kernel_build uses clang and LLVM=1 only. Set TARGET_KERNEL_NO_GCC to true to " +
-				"build the kernel with clang and LLVM=1, or use a kernel source of 5.10 or newer."},
 		{func(v map[string]string) { v["TARGET_KERNEL_SOURCE"] = "kernel/dts" }, nil,
 			"TARGET_KERNEL_SOURCE kernel/dts contains no Makefile. Sync the kernel repository to kernel/dts, or correct TARGET_KERNEL_SOURCE."},
 		{func(v map[string]string) {}, []android.FixturePreparer{dtboSize, android.FixtureOverrideTextFile("kernel/k/Makefile", "VERSION = 5\n")},
@@ -511,8 +507,7 @@ func TestPassedVariables(t *testing.T) {
 }
 
 // TestKernelVersion checks that the version of a kernel source comes from the first assignments of
-// VERSION and PATCHLEVEL in its Makefile, and that a kernel older than 5.10 builds when the board
-// sets TARGET_KERNEL_NO_GCC to true.
+// VERSION and PATCHLEVEL in its Makefile, and that a kernel older than 5.10 builds.
 func TestKernelVersion(t *testing.T) {
 	v, err := readKernelVersion("Makefile", strings.NewReader("# SPDX\nVERSION = 6\nPATCHLEVEL = 1\nSUBLEVEL = 57\n"+
 		"x: PATCHLEVEL = 9\nPATCHLEVEL := $(if $(PATCHLEVEL), $(PATCHLEVEL), 0)\n"))
@@ -534,9 +529,7 @@ func TestKernelVersion(t *testing.T) {
 		}
 	}
 
-	vars := pongBoard()
-	vars["TARGET_KERNEL_NO_GCC"] = "true"
-	prepareBoard(vars, dtboSize, withKernelVersion("5", "4")).RunTestWithBp(t, adapterBp)
+	prepareBoard(pongBoard(), dtboSize, withKernelVersion("5", "4")).RunTestWithBp(t, adapterBp)
 }
 
 // TestLinkTargetsOutside checks which link targets become source directories, those outside the

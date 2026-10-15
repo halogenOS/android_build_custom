@@ -53,7 +53,7 @@ func boardKernelBuildProperties(ctx android.LoadHookContext, vars boardVars) boa
 		propDtboPageSize:        boardKernelPagesize.name,
 	}
 
-	checkKernelVersion(ctx, vars, kernelDir)
+	checkKernelVersion(ctx, kernelDir)
 	p := &kernelBuildProperties{
 		Kernel_dir:        proptools.StringPtr(kernelDir),
 		Extra_source_dirs: linkedSourceDirs(ctx, kernelDir, dtsDir),
@@ -105,21 +105,16 @@ func (v kernelVersion) atLeast(o kernelVersion) bool {
 
 func (v kernelVersion) String() string { return fmt.Sprintf("%d.%d", v.version, v.patchLevel) }
 
-// From 5.10 a kernel builds with clang and LLVM=1 alone, older kernels select GCC tools unless
-// TARGET_KERNEL_NO_GCC is true, and from 6.11 the host programs of a kernel need the host sysroot.
-var (
-	clangAloneFrom  = kernelVersion{5, 10}
-	hostSysrootFrom = kernelVersion{6, 11}
-)
+// From 6.11 the host programs of a kernel need the host sysroot.
+var hostSysrootFrom = kernelVersion{6, 11}
 
 // sourceFileSystem is the file system of the source tree, which the context of a load hook has
 // through blueprint, although android.LoadHookContext does not declare it.
 type sourceFileSystem interface{ Fs() pathtools.FileSystem }
 
-// checkKernelVersion reports a kernel source whose version the board configuration builds
-// otherwise than kernel_build: 6.11 and newer, and older than 5.10 without TARGET_KERNEL_NO_GCC. A
-// kernel source that does not exist is left to kernel_build.
-func checkKernelVersion(ctx android.LoadHookContext, vars boardVars, kernelDir string) {
+// checkKernelVersion reports a kernel source of version 6.11 or newer, which kernel_build does not
+// build. A kernel source that does not exist is left to kernel_build.
+func checkKernelVersion(ctx android.LoadHookContext, kernelDir string) {
 	if !android.ExistentPathForSource(ctx, kernelDir).Valid() {
 		return
 	}
@@ -141,14 +136,9 @@ func checkKernelVersion(ctx android.LoadHookContext, vars boardVars, kernelDir s
 		ctx.ModuleErrorf("%s %s: %s. Set %s to a Linux kernel source.", targetKernelSource, kernelDir, err, targetKernelSource)
 		return
 	}
-	switch {
-	case v.atLeast(hostSysrootFrom):
+	if v.atLeast(hostSysrootFrom) {
 		ctx.ModuleErrorf("%s %s contains Linux %s, and kernels %s and newer are not supported, since their host programs need "+
 			"the host sysroot. Use a kernel source below %s.", targetKernelSource, kernelDir, v, hostSysrootFrom, hostSysrootFrom)
-	case !v.atLeast(clangAloneFrom) && !vars.isTrue(targetKernelNoGcc):
-		ctx.ModuleErrorf("%s %s contains Linux %s. Kernels older than %s build with GCC tools unless %s is true, and kernel_build "+
-			"uses clang and LLVM=1 only. Set %s to true to build the kernel with clang and LLVM=1, or use a kernel source of %s "+
-			"or newer.", targetKernelSource, kernelDir, v, clangAloneFrom, targetKernelNoGcc, targetKernelNoGcc, clangAloneFrom)
 	}
 }
 

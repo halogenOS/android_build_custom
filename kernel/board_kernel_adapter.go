@@ -47,7 +47,6 @@ var (
 	boardKernelImageName                         = newBoardVar("BOARD_KERNEL_IMAGE_NAME")
 	targetKernelClangPath                        = newBoardVar("TARGET_KERNEL_CLANG_PATH")
 	targetKernelClangVersion                     = newBoardVar("TARGET_KERNEL_CLANG_VERSION")
-	targetKernelNoGcc                            = newBoardVar("TARGET_KERNEL_NO_GCC")
 	targetKernelExtModuleRoot                    = newBoardVar("TARGET_KERNEL_EXT_MODULE_ROOT")
 	targetKernelExtModules                       = newBoardVar("TARGET_KERNEL_EXT_MODULES")
 	targetModuleAliases                          = newBoardVar("TARGET_MODULE_ALIASES")
