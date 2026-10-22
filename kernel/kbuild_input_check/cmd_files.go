@@ -13,8 +13,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // cmdValue is the value of one variable of a kbuild .cmd file, split into words.
@@ -25,23 +27,35 @@ type cmdValue struct {
 }
 
 // cmdFilesBatch is the number of .cmd files one make run reads.
-const cmdFilesBatch = 2000
+const cmdFilesBatch = 500
 
 // readCmdValues reads the variables whose names match one of the make patterns from each .cmd
 // file with the given make, run in dir, so that `$(wildcard ...)` entries expand there as they do
 // when kbuild reads the files. Every variable of a file is undefined after it was printed, so the
-// variables of one file never show up as those of another.
+// variables of one file never show up as those of another. The batches run in parallel, one make
+// per processor, since reading the files waits on the disk far more than on the processor; the
+// values keep the order of the files.
 func readCmdValues(makeBin, dir string, files []string, patterns string) ([]cmdValue, error) {
+	batches := (len(files) + cmdFilesBatch - 1) / cmdFilesBatch
+	results := make([][]cmdValue, batches)
+	errs := make([]error, batches)
+	slots := make(chan struct{}, runtime.NumCPU())
+	var wg sync.WaitGroup
+	for i := range batches {
+		start, end := i*cmdFilesBatch, min((i+1)*cmdFilesBatch, len(files))
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer func() { <-slots; wg.Done() }()
+			results[i], errs[i] = readCmdValuesBatch(makeBin, dir, files[start:end], patterns)
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
 	var values []cmdValue
-	for start := 0; start < len(files); start += cmdFilesBatch {
-		end := start + cmdFilesBatch
-		if end > len(files) {
-			end = len(files)
-		}
-		batch, err := readCmdValuesBatch(makeBin, dir, files[start:end], patterns)
-		if err != nil {
-			return nil, err
-		}
+	for _, batch := range results {
 		values = append(values, batch...)
 	}
 	return values, nil
@@ -211,28 +225,51 @@ func (b readBases) of(v cmdValue) string {
 	return b.objDir
 }
 
+// verdict is what checkValues finds for one absolute path: the path with its symbolic links
+// resolved, whether that lies in an allowed directory, and the read relative to top when it is a
+// toolchain read that exists, else "".
+type verdict struct {
+	resolved      string
+	allowed       bool
+	toolchainRead string
+}
+
 // checkValues checks every word of the values against the allowed directories after making it
 // absolute against its base directory and resolving its symbolic links. It returns the reads
 // outside them, in the order found, and the reads inside the toolchain directories that exist,
-// relative to top when they lie below it, sorted.
+// relative to top when they lie below it, sorted. The .cmd files of a kernel name the same headers
+// over and over, so each absolute path is resolved once.
 func checkValues(values []cmdValue, bases readBases, top string, allowed, toolchains allowList) ([]outside, []string) {
+	verdicts := make(map[string]verdict)
+	judge := func(p string) verdict {
+		if v, ok := verdicts[p]; ok {
+			return v
+		}
+		resolved := resolvePath(p)
+		v := verdict{resolved: resolved, allowed: allowed.allows(resolved)}
+		if v.allowed && toolchains.allows(resolved) && fileExists(resolved) {
+			v.toolchainRead = relativeToTop(top, resolved)
+		}
+		verdicts[p] = v
+		return v
+	}
 	var bad []outside
 	seenBad := make(map[outside]bool)
 	toolchainReads := make(map[string]bool)
 	for _, v := range values {
 		base := bases.of(v)
 		for _, word := range v.words {
-			resolved := resolvePath(absolute(base, word))
-			if !allowed.allows(resolved) {
-				o := outside{resolved, v.file}
+			found := judge(absolute(base, word))
+			if !found.allowed {
+				o := outside{found.resolved, v.file}
 				if !seenBad[o] {
 					seenBad[o] = true
 					bad = append(bad, o)
 				}
 				continue
 			}
-			if toolchains.allows(resolved) && fileExists(resolved) {
-				toolchainReads[relativeToTop(top, resolved)] = true
+			if found.toolchainRead != "" {
+				toolchainReads[found.toolchainRead] = true
 			}
 		}
 	}
