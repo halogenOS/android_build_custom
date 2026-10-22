@@ -212,7 +212,12 @@ if [ -z "$line1" ]; then
   die 1 "git log -1 in ` + kernelDir + ` printed no commit: $(cat "$TMPDIR/git_log.err"). Check out a commit in ` + kernelDir + `."
 fi
 line2=$(git -C "$K" describe --abbrev=12 2>/dev/null)
-if { git -C "$K" --no-optional-locks status -uno --porcelain 2>/dev/null || git -C "$K" diff-index --name-only HEAD; } |
+# The index of a checkout shared from another machine records inode numbers and change times that
+# differ where the tree is mounted, and git can not refresh a read-only index, so without these
+# settings every run reads and hashes every file of the kernel again.
+stat_settings=(-c core.checkStat=minimal -c core.trustctime=false)
+if { git -C "$K" "${stat_settings[@]}" --no-optional-locks status -uno --porcelain 2>/dev/null ||
+     git -C "$K" "${stat_settings[@]}" diff-index --name-only HEAD; } |
     grep -qvE '^(.. )?scripts/package'; then
   line3=dirty
 else
