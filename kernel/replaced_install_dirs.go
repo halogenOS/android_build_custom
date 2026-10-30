@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -17,8 +18,16 @@ import (
 )
 
 // replacedInstallDirs keeps every other producer out of an install directory that an install
-// replaces as a whole, and writes the list of those directories that soong_ui reads to remove one
-// that is no longer installed.
+// replaces as a whole. It writes two lists of the installs that extract an extra files zip into the
+// parent directory of their primary file, each on every run and as an empty JSON array when no
+// install of its kind exists:
+//   - replaced_install_dirs, the directories that such an install replaces as a whole. soong_ui
+//     reads it to remove a directory that is no longer installed, and the signing run reads it.
+//   - extracted_zip_installs, the primary files of the other such installs, which keep the other
+//     files in the directory. The signing run reads it.
+//
+// Such an install declares only its primary file, so the signing run passes each primary file of
+// both lists to siso, which copies the whole parent directory from the regular build.
 type replacedInstallDirs struct {
 	// entriesForTesting holds the entries of the list in a unit test.
 	entriesForTesting []replacedDirEntry
@@ -34,11 +43,12 @@ type installedFile struct {
 	path   string
 }
 
-// extractedZip is the directory into which one module variant extracts an extra files zip with a
-// full install that does not replace the directory.
+// extractedZip is an install of one module variant that extracts an extra files zip into dir, the
+// parent directory of its primary file, with a full install that does not replace the directory.
 type extractedZip struct {
-	module string
-	dir    string
+	module  string
+	primary string
+	dir     string
 }
 
 // replacedDir is a directory that an install replaces as a whole.
@@ -94,7 +104,7 @@ func (s *replacedInstallDirs) GenerateBuildActions(ctx android.SingletonContext)
 			if spec.ReplacesInstallDir() {
 				replaced = append(replaced, replacedDir{module: name, primary: full, dir: dir})
 			} else {
-				zips = append(zips, extractedZip{module: name, dir: dir})
+				zips = append(zips, extractedZip{module: name, primary: full, dir: dir})
 			}
 		}
 	})
@@ -144,13 +154,19 @@ func (s *replacedInstallDirs) GenerateBuildActions(ctx android.SingletonContext)
 		s.entriesForTesting = entries
 		return
 	}
-	content, err := json.Marshal(entries)
+	writeList(ctx, "replaced_install_dirs", entries)
+	writeList(ctx, "extracted_zip_installs", extractedZipPrimaries(productOut, zips))
+}
+
+// writeList writes list as JSON into the file of the out directory that has name with the product
+// suffix.
+func writeList(ctx android.SingletonContext, name string, list any) {
+	content, err := json.Marshal(list)
 	if err != nil {
 		ctx.Errorf("%s", err.Error())
 		return
 	}
-	out := android.PathForOutput(ctx,
-		"replaced_install_dirs"+proptools.String(ctx.Config().ProductVariables().Make_suffix)+".json").String()
+	out := android.PathForOutput(ctx, name+proptools.String(ctx.Config().ProductVariables().Make_suffix)+".json").String()
 	if err := pathtools.WriteFileIfChanged(absoluteOutPath(out), append(content, '\n'), 0666); err != nil {
 		ctx.Errorf("%s", err.Error())
 	}
@@ -170,6 +186,20 @@ func replacedDirEntries(productOut string, replaced []replacedDir) []replacedDir
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Dir < entries[j].Dir })
 	return entries
+}
+
+// extractedZipPrimaries gives the primary file of each install in zips below productOut, relative
+// to it, once each and in byte order. The result is never nil, so the list is a JSON array even
+// without an entry.
+func extractedZipPrimaries(productOut string, zips []extractedZip) []string {
+	primaries := []string{}
+	for _, z := range zips {
+		if primary, ok := strings.CutPrefix(z.primary, productOut+"/"); ok {
+			primaries = append(primaries, primary)
+		}
+	}
+	slices.Sort(primaries)
+	return slices.Compact(primaries)
 }
 
 // absoluteOutPath makes a path of the out directory absolute; soong_build runs at the tree top.
