@@ -1,12 +1,8 @@
 # build/custom
 
-Build-system glue for the product layer: the Soong kernel build, whose module types
-`kernel_build` and `kernel_uapi_headers` build a kernel for a device and export its user-space
-headers, with `kernel_uapi_header_dirs` for chosen folders of those headers,
-`kernel_partition_modules` for the kernel modules of a partition, and
-board_functions.mk, which defines the Make functions `is-board-platform-in-list`,
-`is-vendor-board-platform` and `is-platform-sdk-version-at-least` called by the Qualcomm
-repositories. Nothing here defines a product; product configuration lives in product/custom.
+Build-system glue for the product layer: Soong module types for kernels and for files chosen by
+screen density, and board_functions.mk with Make functions for board configurations. Product
+configuration lives in product/custom.
 
 ## Building a kernel for a device
 
@@ -166,3 +162,9 @@ copied without its git directory, or a checkout without a commit, fails the buil
 The kernel is built again when any file below `kernel_dir`, `extra_source_dirs` or
 `external_modules.root` changes, whether git tracks it or not: an editor's swap file written there
 makes the next build run the kernel's rules again, and one written while they run fails that build.
+
+## Files chosen by screen density
+
+A `density_prebuilt_etc` module is a `prebuilt_etc` that installs `density_src` from the folder of
+the device's density bucket, `mdpi` to `xxxhdpi`. The density comes from `TARGET_SCREEN_DENSITY`,
+else `PRODUCT_AAPT_PREF_CONFIG`, else `mdpi`. The module must install to product, vendor or odm.

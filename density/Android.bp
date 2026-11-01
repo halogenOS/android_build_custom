@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: The halogenOS Project
+// SPDX-License-Identifier: Apache-2.0
+
+bootstrap_go_package {
+    name: "soong-custom-density",
+    pkgPath: "custom/soong/density",
+    deps: [
+        "blueprint-proptools",
+        "soong",
+        "soong-android",
+        "soong-etc",
+    ],
+    srcs: ["density_prebuilt_etc.go"],
+    pluginFor: ["soong_build"],
+}
