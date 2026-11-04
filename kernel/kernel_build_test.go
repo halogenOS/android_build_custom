@@ -209,8 +209,9 @@ func TestKbuildRule(t *testing.T) {
 	containsAll(t, "command", cmd, "{ T=$$PWD; script=$$(cat ", "/kbuild.sh) || exit $$?; env -i PATH=",
 		"/tools:\"$$T\"/prebuilts/clang/host/linux-x86/clang-r",
 		"/bin:\"$$T\"/prebuilts/build-tools/path/linux-x86:\"$$PATH\" ",
-		"HOME=", "/home ", "TMPDIR=", "/tmp/kbuild ", "LC_ALL=C", "TZ=UTC", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0='*'",
+		"HOME=", "/home ", "TMPDIR=", "/tmp/kbuild ", "LC_ALL=C", "TZ=UTC", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_COUNT=3",
+		"GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0='*'", "GIT_CONFIG_KEY_1=core.checkStat", "GIT_CONFIG_VALUE_1=minimal",
+		"GIT_CONFIG_KEY_2=core.trustctime", "GIT_CONFIG_VALUE_2=false",
 		"BISON_PKGDATADIR=\"$$T\"/prebuilts/build-tools/common/bison", "PERL5LIB=\"$$T\"/prebuilts/tools-lineage/common/perl-base",
 		`"$$T"/prebuilts/build-tools/path/linux-x86/setsid bash -c "$$script"`,
 		"& p=$$!; trap 'kill -TERM -$$p 2>/dev/null' INT TERM; while :; do wait $$p;")
@@ -376,7 +377,8 @@ func TestRuleEnvRelative(t *testing.T) {
 		`PATH="$T"/out/soong/.intermediates/k/android_common/tools:"$T"/prebuilts/clang/host/linux-x86/clang-r1/bin:"$T"/prebuilts/build-tools/path/linux-x86:"$PATH" `,
 		`HOME="$T"/out/soong/.intermediates/k/android_common/home `,
 		`TMPDIR="$T"/out/soong/.intermediates/k/android_common/tmp/git_state `,
-		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'")
+		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*' "+
+			"GIT_CONFIG_KEY_1=core.checkStat GIT_CONFIG_VALUE_1=minimal GIT_CONFIG_KEY_2=core.trustctime GIT_CONFIG_VALUE_2=false")
 	headers := shellRule{name: "headers", modOut: "out/x", clangDir: "c", body: ":\n"}.command("out/x/headers.sh")
 	if strings.Contains(headers, "/tools:") {
 		t.Errorf("a rule without a tool directory has one on PATH: %s", headers)
@@ -556,7 +558,7 @@ func TestGitStateRule(t *testing.T) {
 		"describe --abbrev=12", "--no-optional-locks status -uno --porcelain", "diff-index --name-only HEAD",
 		"scripts/package", `stage "$OUT.tmp" "$OUT"`, "--absolute-git-dir", "--path-format=absolute --git-common-dir",
 		"--path-format=absolute --git-path index", "kernel/k/.scmversion", `"$gitdir/HEAD"`, "packed-refs",
-		`"$common/refs"`, `"$index"`, `write_depfile "$MOD/git_state.d" "$OUT"`, "check_unchanged")
+		`"$common/refs/heads" "$common/refs/tags"`, `"$index"`, `write_depfile "$MOD/git_state.d" "$OUT"`, "check_unchanged")
 	// git_state.txt is an input of the kbuild rule.
 	if !strings.Contains(strings.Join(m.Rule("kbuild").Implicits.Strings(), " "), "git_state.txt") {
 		t.Errorf("git_state.txt is no input of the kbuild rule")

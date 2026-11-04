@@ -80,9 +80,16 @@ func (r shellRule) command(script string) string {
 		"LC_ALL=C",
 		"TZ=UTC",
 		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_COUNT=3",
 		"GIT_CONFIG_KEY_0=safe.directory",
 		"GIT_CONFIG_VALUE_0='*'",
+		// The index of a checkout shared from another machine records inode numbers and change times
+		// that differ where the tree is mounted, so without these settings every git status, such as
+		// the one setlocalversion runs in each make run, reads and hashes every file again.
+		"GIT_CONFIG_KEY_1=core.checkStat",
+		"GIT_CONFIG_VALUE_1=minimal",
+		"GIT_CONFIG_KEY_2=core.trustctime",
+		"GIT_CONFIG_VALUE_2=false",
 	}
 	env = append(env, r.env...)
 	return "{ T=$PWD; script=$(cat " + treeWord(script) + ") || exit $?; env -i " + strings.Join(env, " ") +
