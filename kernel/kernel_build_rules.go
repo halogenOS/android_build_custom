@@ -194,9 +194,11 @@ func (k *kernelBuild) buildRules(ctx android.ModuleContext, outs kernelOutputs) 
 }
 
 // buildGitStateRule writes the rule that records the git state the kernel's reported identity comes
-// from: the last commit with its time, the description setlocalversion reads and whether the
-// checkout is dirty. The file keeps its modification time when the three lines stay the same, so
-// a git operation that changes none of them runs this rule and not the kbuild rule.
+// from: the last commit with its time and the description setlocalversion reads. The file keeps its
+// modification time when both lines stay the same, so a git operation that changes neither of them
+// runs this rule and not the kbuild rule. The rule's inputs are the files of the git directory that
+// a commit, checkout or tag writes. An edited kernel source file runs the kbuild rule through the
+// kbuild rule's own depfile.
 func (k *kernelBuild) buildGitStateRule(ctx android.ModuleContext, modOut, clangDir, kernelDir string, gitState android.WritablePath) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "KIC=%s\n", treeWord(ctx.Config().HostToolPath(ctx, "kbuild_input_check").String()))
@@ -212,27 +214,16 @@ if [ -z "$line1" ]; then
   die 1 "git log -1 in ` + kernelDir + ` printed no commit: $(cat "$TMPDIR/git_log.err"). Check out a commit in ` + kernelDir + `."
 fi
 line2=$(git -C "$K" describe --abbrev=12 2>/dev/null)
-if { git -C "$K" --no-optional-locks status -uno --porcelain 2>/dev/null ||
-     git -C "$K" diff-index --name-only HEAD; } |
-    grep -qvE '^(.. )?scripts/package'; then
-  line3=dirty
-else
-  line3=clean
-fi
-printf '%s\n%s\n%s\n' "$line1" "$line2" "$line3" > "$OUT.tmp" || die $?
+printf '%s\n%s\n' "$line1" "$line2" > "$OUT.tmp" || die $?
 stage "$OUT.tmp" "$OUT" || die $?
 rel() { case "$1" in "$T"/*) echo "${1#"$T"/}" ;; *) echo "$1" ;; esac; }
 gitdir=$(realpath "$(git -C "$K" rev-parse --absolute-git-dir)") || die $?
 common=$(realpath "$(git -C "$K" rev-parse --path-format=absolute --git-common-dir)") || die $?
-index=$(realpath "$(git -C "$K" rev-parse --path-format=absolute --git-path index)") || die $?
-set -- `)
-	b.WriteString(words(quoteAll(topLevelEntries(ctx, kernelDir))...))
-	b.WriteString(` "$(rel "$gitdir/HEAD")"
+set -- "$(rel "$gitdir/HEAD")"
 if [ -e "$common/packed-refs" ]; then set -- "$@" "$(rel "$common/packed-refs")"; fi
 for refs in "$common/refs/heads" "$common/refs/tags"; do
   if [ -e "$refs" ]; then set -- "$@" "$(rel "$refs")"; fi
 done
-set -- "$@" "$(rel "$index")"
 write_depfile "$MOD/git_state.d" "$OUT" "$@" || die $?
 check_unchanged "$@" || die 1
 `)

@@ -527,7 +527,7 @@ func TestClangDir(t *testing.T) {
 
 func TestGlobsOfTopLevelEntries(t *testing.T) {
 	result := prepareKernel(allHostTools).RunTestWithBp(t, pongLike)
-	script := ruleScript(t, result, result.ModuleForTests(t, "k", "android_common"), "git_state")
+	script := kbuildScriptOf(t, result, "k")
 	for _, e := range []string{"kernel/k/.scmversion", "kernel/k/Makefile", "kernel/k/arch", "kernel/k/drivers"} {
 		if !strings.Contains(script, e) {
 			t.Errorf("the entries of kernel/k lack %s", e)
@@ -555,10 +555,9 @@ func TestGitStateRule(t *testing.T) {
 	checkShellSyntax(t, "git state", cmd, script)
 	inOrder(t, "git state", script, "NAME=git_state", `LOCK="$MOD/$NAME.lock"`,
 		`PGIDF="$MOD/$NAME.pgid"`, "START=", "rev-parse --show-toplevel", "is not the top of a git work tree", "log -1 --format='%H %ct'",
-		"describe --abbrev=12", "--no-optional-locks status -uno --porcelain", "diff-index --name-only HEAD",
-		"scripts/package", `stage "$OUT.tmp" "$OUT"`, "--absolute-git-dir", "--path-format=absolute --git-common-dir",
-		"--path-format=absolute --git-path index", "kernel/k/.scmversion", `"$gitdir/HEAD"`, "packed-refs",
-		`"$common/refs/heads" "$common/refs/tags"`, `"$index"`, `write_depfile "$MOD/git_state.d" "$OUT"`, "check_unchanged")
+		"describe --abbrev=12", `stage "$OUT.tmp" "$OUT"`, "--absolute-git-dir", "--path-format=absolute --git-common-dir",
+		`"$gitdir/HEAD"`, "packed-refs", `"$common/refs/heads" "$common/refs/tags"`,
+		`write_depfile "$MOD/git_state.d" "$OUT"`, "check_unchanged")
 	// git_state.txt is an input of the kbuild rule.
 	if !strings.Contains(strings.Join(m.Rule("kbuild").Implicits.Strings(), " "), "git_state.txt") {
 		t.Errorf("git_state.txt is no input of the kbuild rule")
