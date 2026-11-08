@@ -141,11 +141,14 @@ func (k *kernelBuild) buildRules(ctx android.ModuleContext, outs kernelOutputs) 
 		gitState:      gitState.String(),
 		imageOut:      outs.image.String(),
 		systemMapOut:  outs.systemMap.String(),
+		config:        outs.config.String(),
 		modulesOut:    outs.modules.String(),
 	}
 	if outs.dtbs != nil {
 		s.dtbsOut = outs.dtbs.String()
 	}
+
+	k.buildConfigRule(ctx, &s, outs.config)
 
 	rule := android.NewRuleBuilder(pctx, ctx).SandboxDisabled().Restat().HighMem()
 	// The Go host tools that the rule's own commands run are called by the paths BuiltTool writes
@@ -164,21 +167,14 @@ func (k *kernelBuild) buildRules(ctx android.ModuleContext, outs kernelOutputs) 
 		modOut:   modOut,
 		toolDir:  true,
 		clangDir: clangDir,
-		env: []string{
-			"BISON_PKGDATADIR=" + treeWord(bisonData),
-			"PERL5LIB=" + treeWord(perlBase),
-		},
-		body: s.body(),
+		env:      kbuildEnv,
+		body:     s.body(),
 	}.build(ctx, rule)
 	cmd.Implicit(gitState).
+		Implicit(outs.config).
 		Implicit(android.PathForSource(ctx, perlPath)).
 		Implicit(android.PathForSource(ctx, clangDir, "bin", "clang")).
 		Implicit(android.PathForSource(ctx, buildToolsBin, "make"))
-	configs := path.Join(kernelDir, "arch", proptools.String(p.Kernel_arch), "configs")
-	cmd.Implicit(android.PathForSource(ctx, configs, proptools.String(p.Defconfig)))
-	for _, f := range p.Config_fragments {
-		cmd.Implicit(android.PathForSource(ctx, configs, f))
-	}
 	cmd.ImplicitOutput(outs.image).
 		ImplicitOutput(outs.systemMap).
 		ImplicitOutput(outs.modules).
@@ -191,6 +187,40 @@ func (k *kernelBuild) buildRules(ctx android.ModuleContext, outs kernelOutputs) 
 	if k.dtImagesSet() {
 		k.buildDtRule(ctx, outs)
 	}
+}
+
+// kbuildEnv are the environment additions of the kconfig and kbuild rules, which run make for the
+// kernel in the same environment, so that both evaluate the Kconfig files of the kernel source
+// alike.
+var kbuildEnv = []string{
+	"BISON_PKGDATADIR=" + treeWord(bisonData),
+	"PERL5LIB=" + treeWord(perlBase),
+}
+
+// buildConfigRule writes the rule that makes the kernel configuration in a separate object tree.
+// The kbuild rule builds from that configuration, and a rule that reads only the configuration
+// waits for this rule and not for the kernel build.
+func (k *kernelBuild) buildConfigRule(ctx android.ModuleContext, s *kbuildScript, config android.WritablePath) {
+	rule := android.NewRuleBuilder(pctx, ctx).SandboxDisabled().Restat()
+	rule.Command().Text("true").BuiltTool("kbuild_input_check")
+	cmd := shellRule{
+		name:     "kconfig",
+		modOut:   android.PathForModuleOut(ctx).String(),
+		toolDir:  true,
+		clangDir: s.clangDir,
+		env:      kbuildEnv,
+		body:     s.kconfigBody(),
+	}.build(ctx, rule)
+	cmd.Implicit(android.PathForSource(ctx, s.clangDir, "bin", "clang")).
+		Implicit(android.PathForSource(ctx, buildToolsBin, "make"))
+	configs := path.Join(s.kernelDir(), "arch", s.arch(), "configs")
+	cmd.Implicit(android.PathForSource(ctx, configs, s.defconfig()))
+	for _, f := range s.configFragments() {
+		cmd.Implicit(android.PathForSource(ctx, configs, f))
+	}
+	cmd.ImplicitOutput(config).
+		ImplicitDepFile(android.PathForModuleOut(ctx, "kconfig.d"))
+	rule.Build("kconfig", "kernel configuration of "+ctx.ModuleName())
 }
 
 // buildGitStateRule writes the rule that records the git state the kernel's reported identity comes
@@ -276,8 +306,10 @@ type kbuildScript struct {
 	// kernel_output_files and soong_zip.
 	inputCheck, outputFiles, soongZip string
 	gitState                          string
-	imageOut, systemMapOut            string
-	modulesOut, dtbsOut               string
+	// config is the configuration made by the kconfig rule, which the kbuild rule builds from.
+	config                 string
+	imageOut, systemMapOut string
+	modulesOut, dtbsOut    string
 }
 
 // The script reads the module's properties only through these accessors.
@@ -307,23 +339,52 @@ func (s *kbuildScript) dts() string { return "\"$OBJ\"/arch/" + shq(s.arch()) + 
 
 // body is the kbuild rule's inner script after the lock is held: the phases in order.
 func (s *kbuildScript) body() string {
-	return s.setup() + s.configuration() + s.buildSteps() + s.modulesAndOutputs()
+	return s.setup() + s.configInput() + s.buildSteps() + s.modulesAndOutputs()
 }
 
-// setup writes the variables, the cleanup after a stopped run and the mark of this run, the tool
-// links, the kernel's reported identity, the toolchain identity with the reset of the object tree
-// on a change of it, and the make variables.
-func (s *kbuildScript) setup() string {
+// kconfigBody is the script run by the kconfig rule once the lock is held: the configuration made in
+// an empty object tree, the depfile with the check for inputs changed during the run, and the
+// configuration staged at the rule output.
+func (s *kbuildScript) kconfigBody() string {
 	var b strings.Builder
 	w := func(format string, args ...interface{}) { fmt.Fprintf(&b, format, args...) }
-	w("KIC=%s\nKOF=%s\nSZ=%s\n", treeWord(s.inputCheck), treeWord(s.outputFiles), treeWord(s.soongZip))
+	w("KIC=%s\n", treeWord(s.inputCheck))
+	b.WriteString(s.toolVariables())
+	b.WriteString("OBJ=\"$MOD\"/kconfig\n")
+	b.WriteString(s.makeSetup())
+	b.WriteString(`{ rm -rf "$OBJ" && mkdir -p "$OBJ"; } || die $?
+`)
+	b.WriteString(s.configuration())
+	w("set -- %s\n", words(s.depfileEntries()...))
+	w("write_depfile \"$MOD\"/kconfig.d %s \"$@\" || die $?\n", treeWord(s.config))
+	b.WriteString("check_unchanged \"$@\" || die 1\n")
+	w("stage \"$OBJ\"/.config %s || die $?\n", treeWord(s.config))
+	return b.String()
+}
+
+// toolVariables writes the variables of the kernel source directory and of the tools every make
+// for the kernel uses.
+func (s *kbuildScript) toolVariables() string {
+	var b strings.Builder
+	w := func(format string, args ...interface{}) { fmt.Fprintf(&b, format, args...) }
 	w("K=%s\n", treeWord(s.kernelDir()))
-	w("OBJ=\"$MOD\"/kbuild/%s\n", shq(s.kernelDir()))
-	w("STG=\"$MOD\"/modules_staging\n")
 	w("MAKE=\"$T\"/%s/make\n", buildToolsBin)
 	w("CLANG=%s\n", treeWord(s.clangDir))
 	w("SYSROOT=\"$T\"/%s\n", glibcSysroot)
 	w("DTC=%s\nLIBCRYPTO=%s\nLIBCRYPTO_DIR=%s\n", treeWord(s.dtc), treeWord(s.libcrypto), treeWord(filepath.Dir(s.libcrypto)))
+	return b.String()
+}
+
+// setup writes the variables, the cleanup after a stopped run and the mark of this run, the
+// identity reported by the kernel, the toolchain identity with the reset of the object tree on a change
+// of it, and the make setup.
+func (s *kbuildScript) setup() string {
+	var b strings.Builder
+	w := func(format string, args ...interface{}) { fmt.Fprintf(&b, format, args...) }
+	w("KIC=%s\nKOF=%s\nSZ=%s\n", treeWord(s.inputCheck), treeWord(s.outputFiles), treeWord(s.soongZip))
+	b.WriteString(s.toolVariables())
+	w("OBJ=\"$MOD\"/kbuild/%s\n", shq(s.kernelDir()))
+	w("STG=\"$MOD\"/modules_staging\n")
 
 	// The failure hook: once the run has marked itself, a failure with a status from 1 to 127
 	// deletes the marker when no process of the rule's session is left besides the inner bash
@@ -358,9 +419,6 @@ while :; do
 done
 rm -f "$MOD/kbuild.probe"
 `)
-	w("J=$(%s) || die $?\n", jobCountCommand)
-	w("ln -sfn \"$DTC\" \"$MOD\"/tools/dtc && ln -sfn %s \"$MOD\"/tools/depmod && ln -sfn \"$T\"/%s \"$MOD\"/tools/perl || die $?\n",
-		treeWord(s.depmod), perlPath)
 
 	// The kernel's reported identity: fixed user, host and version, and the commit time of the
 	// kernel's last commit as the date.
@@ -384,8 +442,18 @@ export KBUILD_BUILD_TIMESTAMP="$timestamp"
   stage "$TMPDIR"/toolchain.id "$MOD"/toolchain.id || die $?
 fi
 `)
+	b.WriteString(s.makeSetup())
+	return b.String()
+}
 
-	// The make variables of every kbuild make; every path is absolute.
+// makeSetup writes the job count, the tool links and the make variables of every make for the
+// kernel, with mk, which runs make with them. Every path is absolute.
+func (s *kbuildScript) makeSetup() string {
+	var b strings.Builder
+	w := func(format string, args ...interface{}) { fmt.Fprintf(&b, format, args...) }
+	w("J=$(%s) || die $?\n", jobCountCommand)
+	w("ln -sfn \"$DTC\" \"$MOD\"/tools/dtc && ln -sfn %s \"$MOD\"/tools/depmod && ln -sfn \"$T\"/%s \"$MOD\"/tools/perl || die $?\n",
+		treeWord(s.depmod), perlPath)
 	w("MV=(ARCH=%s LLVM=1 LLVM_IAS=1 LEX=\"$T\"/%s/flex YACC=\"$T\"/%s/bison M4=\"$T\"/%s/m4 DTC_EXT=\"$DTC\""+
 		" %s \"CRYPTO_CFLAGS=-I$T/%s\" \"CRYPTO_LIBS=$LIBCRYPTO -Wl,-rpath,$LIBCRYPTO_DIR\" PAHOLE=)\n",
 		shq(s.arch()), buildToolsBin, buildToolsBin, buildToolsBin, hostMakeVars, boringsslHeader)
@@ -393,15 +461,18 @@ fi
 	return b.String()
 }
 
-// configuration writes the configuration steps in the kept object tree. An unchanged .config keeps
-// its modification time, so kbuild sees no configuration change.
+// configInput puts the configuration made by the kconfig rule in the kept object tree. An unchanged
+// configuration file is not replaced, so kbuild sees no configuration change.
+func (s *kbuildScript) configInput() string {
+	return "mkdir -p \"$OBJ\" || die $?\nstage " + treeWord(s.config) + " \"$OBJ\"/.config || die $?\n"
+}
+
+// configuration writes the configuration steps of the kconfig rule: the defconfig, each fragment
+// merged into it, and the check of the result.
 func (s *kbuildScript) configuration() string {
 	var b strings.Builder
 	w := func(format string, args ...interface{}) { fmt.Fprintf(&b, format, args...) }
 	configs := "\"$K\"/arch/" + shq(s.arch()) + "/configs/"
-	b.WriteString(`mkdir -p "$OBJ" || die $?
-if [ -f "$OBJ/.config" ]; then cp -p "$OBJ/.config" "$TMPDIR"/config.saved || die $?; fi
-`)
 	w("cp %s%s \"$OBJ\"/.config || die $?\n", configs, shq(s.defconfig()))
 	b.WriteString("mk -C \"$K\" O=\"$OBJ\" olddefconfig || die $?\n")
 	for _, f := range s.configFragments() {
@@ -409,10 +480,7 @@ if [ -f "$OBJ/.config" ]; then cp -p "$OBJ/.config" "$TMPDIR"/config.saved || di
 		w("( cd \"$TMPDIR\" && \"$K\"/scripts/kconfig/merge_config.sh -m -O \"$OBJ\" \"$OBJ\"/.config %s%s ) || die $?\n", configs, shq(f))
 		b.WriteString("mk -C \"$K\" O=\"$OBJ\" olddefconfig || die $?\n")
 	}
-	b.WriteString(`if [ -f "$TMPDIR"/config.saved ] && cmp -s "$OBJ"/.config "$TMPDIR"/config.saved; then
-  touch -r "$TMPDIR"/config.saved "$OBJ"/.config || die $?
-fi
-if grep -qx 'CONFIG_MODULE_SIG=y' "$OBJ"/.config; then
+	b.WriteString(`if grep -qx 'CONFIG_MODULE_SIG=y' "$OBJ"/.config; then
   die 1 "the kernel configuration sets CONFIG_MODULE_SIG=y, and module signing is not built: the kernel module packaging strips the modules again, which drops appended signatures. ` +
 		`Turn CONFIG_MODULE_SIG off in a fragment of ` + s.names.of(propConfigFragments) + `."
 fi
@@ -498,8 +566,7 @@ mkdir -p "$MOD"/zip || die $?
 	w(" -toolchain \"$CLANG\" -toolchain \"$SYSROOT\" -toolchain \"$T\"/%s || die $?\n", boringsslHeader)
 
 	// The depfile, then the check for inputs changed during the run.
-	deps := append(quoteAll(s.sourceEntries), shq(s.clangDir), buildToolsBin, buildToolsPath, bisonData, perlBase, glibcSysroot)
-	w("set -- %s\n", words(deps...))
+	w("set -- %s\n", words(s.depfileEntries()...))
 	w("write_depfile \"$MOD\"/kbuild.d %s -list \"$MOD\"/toolchain_reads.txt \"$@\" || die $?\n", treeWord(s.imageOut))
 	b.WriteString(`mapfile -t reads < "$MOD"/toolchain_reads.txt
 check_unchanged "$@" "${reads[@]}" || die 1
@@ -514,6 +581,12 @@ check_unchanged "$@" "${reads[@]}" || die 1
 	}
 	b.WriteString("rm -f \"$MOD\"/kbuild.started\n")
 	return b.String()
+}
+
+// depfileEntries are the entries of the depfiles of the kconfig and kbuild rules: the top-level
+// entries of the source directories and the toolchain.
+func (s *kbuildScript) depfileEntries() []string {
+	return append(quoteAll(s.sourceEntries), shq(s.clangDir), buildToolsBin, buildToolsPath, bisonData, perlBase, glibcSysroot)
 }
 
 // externalRemovalScript is the part of the kbuild rule's inner script that handles the list of

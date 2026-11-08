@@ -33,14 +33,17 @@ type kernelUapiHeaders struct {
 	fromBoard bool
 }
 
-// KernelUapiHeadersInfo contains the directory of the installed headers and the stamp that shows a
-// change in them.
+// KernelUapiHeadersInfo contains the directory of the installed headers, the stamp that shows a
+// change in them and the configuration of the kernel they come from.
 // @auto-generate: gob
 type KernelUapiHeadersInfo struct {
 	// Usr is the directory that contains every header installed below usr.
 	Usr android.OutputPath
 	// Stamp gets a new modification time whenever a header below Usr changed.
 	Stamp android.OutputPath
+	// Config is the configuration used to build the kernel, the output ConfigTag of the
+	// kernel_build module that builds it.
+	Config android.Path
 }
 
 var KernelUapiHeadersInfoProvider = blueprint.NewProvider[KernelUapiHeadersInfo]()
@@ -120,15 +123,19 @@ func (h *kernelUapiHeaders) GenerateAndroidBuildActions(ctx android.ModuleContex
 	usr := modOut.Join(ctx, "gen", "usr")
 	h.stamp = modOut.Join(ctx, "gen", "headers.stamp")
 	h.headerDirs = android.Paths{usr.Join(ctx, "include")}
-	android.SetProvider(ctx, KernelUapiHeadersInfoProvider, KernelUapiHeadersInfo{Usr: usr, Stamp: h.stamp})
 	// The stamp is no checkbuild file, so `m checkbuild` reaches no ErrorRule of the header rule.
 	ctx.ModulePhonyFiles(h.stamp)
 	registerGoalPhonies(ctx, h.ExportedToMake(), android.Paths{h.stamp})
 
 	if h.ref == "" {
-		android.ErrorRule(ctx, h.stamp, "no kernel module is configured: BOARD_KERNEL_BUILD_MODULE is not set, "+
-			"so "+ctx.ModuleName()+" exports no kernel headers. Set TARGET_KERNEL_SOURCE and TARGET_KERNEL_CONFIG in BoardConfig.mk, "+
-			"or write a kernel_build module and set BOARD_KERNEL_BUILD_MODULE to it.")
+		// Without a kernel, the configuration is an output of this module that fails like the stamp.
+		config := modOut.Join(ctx, "config")
+		msg := "no kernel module is configured: BOARD_KERNEL_BUILD_MODULE is not set, so " + ctx.ModuleName() +
+			" cannot export the headers and the configuration of a kernel. Set TARGET_KERNEL_SOURCE and TARGET_KERNEL_CONFIG in BoardConfig.mk, " +
+			"or write a kernel_build module and set BOARD_KERNEL_BUILD_MODULE to it."
+		android.ErrorRule(ctx, h.stamp, msg)
+		android.ErrorRule(ctx, config, msg)
+		android.SetProvider(ctx, KernelUapiHeadersInfoProvider, KernelUapiHeadersInfo{Usr: usr, Stamp: h.stamp, Config: config})
 		return
 	}
 	var info *KernelSourcesInfo
@@ -156,6 +163,8 @@ func (h *kernelUapiHeaders) GenerateAndroidBuildActions(ctx android.ModuleContex
 			return
 		}
 		info = &i
+		android.SetProvider(ctx, KernelUapiHeadersInfoProvider,
+			KernelUapiHeadersInfo{Usr: usr, Stamp: h.stamp, Config: android.OutputFileForModule(ctx, m, ConfigTag)})
 	})
 	if info == nil {
 		return

@@ -1,0 +1,22 @@
+// SPDX-FileCopyrightText: The halogenOS Project
+// SPDX-License-Identifier: Apache-2.0
+
+bootstrap_go_package {
+    name: "soong-custom-art",
+    pkgPath: "custom/soong/art",
+    deps: [
+        "blueprint",
+        "soong",
+        "soong-android",
+        "soong-cc-config",
+        "soong-custom-kernel",
+        "soong-dexpreopt",
+    ],
+    srcs: ["uffd_gc_support.go"],
+    pluginFor: ["soong_build"],
+}
+
+uffd_gc_support {
+    name: "uffd_gc_support",
+    kernel_headers: "generated_kernel_includes",
+}

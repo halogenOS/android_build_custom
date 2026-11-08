@@ -3,9 +3,12 @@
 package kernel
 
 import (
+	"android/soong/android"
 	"bytes"
+	"fmt"
 	"github.com/google/blueprint/gobtools"
 	"github.com/google/blueprint/proptools"
+	"reflect"
 )
 
 // begin of kernel_build.go
@@ -155,17 +158,44 @@ func (r KernelUapiHeadersInfo) Encode(ctx gobtools.EncContext, buf *bytes.Buffer
 	if err = r.Stamp.Encode(ctx, buf); err != nil {
 		return err
 	}
+
+	if err = gobtools.EncodeInterface(ctx, buf, r.Config); err != nil {
+		return err
+	}
 	return err
 }
 
 func (r KernelUapiHeadersInfo) CustomHash(hasher *proptools.Hasher) error {
 	hasher.WriteString(":kernel.KernelUapiHeadersInfo")
-	hasher.WriteInt(2)
+	hasher.WriteInt(3)
 	if err := r.Usr.CustomHash(hasher); err != nil {
 		return err
 	}
 	if err := r.Stamp.CustomHash(hasher); err != nil {
 		return err
+	}
+	hasher.WriteString(":kernel.android.Path")
+	val1 := r.Config == nil
+	if val1 {
+		hasher.WriteByte(0)
+	} else {
+		if v := reflect.ValueOf(r.Config); v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				panic(fmt.Errorf("nil pointer is not supported in interface"))
+			} else {
+				val2 := r.Config == nil
+				if val2 {
+					hasher.WriteByte(0)
+				} else {
+					val3 := func(hasher *proptools.Hasher) error { return r.Config.(proptools.CustomHash).CustomHash(hasher) }
+					if err := proptools.HashReference(hasher, uintptr(v.Pointer()), val3); err != nil {
+						return err
+					}
+				}
+			}
+		} else {
+			r.Config.(proptools.CustomHash).CustomHash(hasher)
+		}
 	}
 	return nil
 }
@@ -179,6 +209,14 @@ func (r *KernelUapiHeadersInfo) Decode(ctx gobtools.EncContext, buf *bytes.Reade
 
 	if err = r.Stamp.Decode(ctx, buf); err != nil {
 		return err
+	}
+
+	if val4, err := gobtools.DecodeInterface(ctx, buf); err != nil {
+		return err
+	} else if val4 == nil {
+		r.Config = nil
+	} else {
+		r.Config = val4.(android.Path)
 	}
 
 	return err

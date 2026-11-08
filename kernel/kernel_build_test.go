@@ -195,8 +195,8 @@ func TestKbuildRule(t *testing.T) {
 	outputs := strings.Join(append(rule.ImplicitOutputs.Strings(), rule.Output.String()), " ")
 	containsAll(t, "outputs", outputs, "/Image", "/System.map", "/modules.zip", "/dtbs.zip")
 	containsAll(t, "inputs", strings.Join(rule.Implicits.Strings(), " "),
-		"git_state.txt", "prebuilts/tools-lineage/linux-x86/bin/perl", "/bin/clang",
-		"prebuilts/build-tools/linux-x86/bin/make", "configs/gki_defconfig", "configs/one.config", "configs/two.config")
+		"git_state.txt", "/config", "prebuilts/tools-lineage/linux-x86/bin/perl", "/bin/clang",
+		"prebuilts/build-tools/linux-x86/bin/make")
 	// The Go host tools BuiltTool declares, the two tools kbuild calls and the host libcrypto.
 	containsAll(t, "tools", strings.Join(rule.RuleParams.CommandDeps, " "),
 		"bin/kbuild_input_check", "bin/kernel_output_files", "bin/soong_zip", "bin/dtc", "bin/depmod",
@@ -235,8 +235,6 @@ func TestKbuildRule(t *testing.T) {
 		`mkdir -p "$HOME" "$MOD/tools" && rm -rf "$TMPDIR" && mkdir -p "$TMPDIR"`, "START=$(date +%s.%N)",
 		`if [ -e "$MOD/kbuild.started" ]`, `-newercc "$MOD/kbuild.started" -delete`, `touch "$MOD/kbuild.started"`,
 		"marked=1", "kbuild.probe", "tries -ge 100",
-		"J=$(getconf _NPROCESSORS_ONLN)",
-		`"$MOD"/tools/dtc`, `"$MOD"/tools/depmod`, `"$MOD"/tools/perl`,
 		"read -r commit ctime _ <", `date -u -d "@$ctime"`,
 		"KBUILD_BUILD_USER=build-user KBUILD_BUILD_HOST=build-host KBUILD_BUILD_VERSION=1", `KBUILD_BUILD_TIMESTAMP="$timestamp"`,
 		`"$CLANG"/bin/clang --version && echo arm64 && echo "$T" && echo kernel/k && echo kernel/dts && echo kernel/mods`,
@@ -244,12 +242,12 @@ func TestKbuildRule(t *testing.T) {
 		"bin/flex", "bin/bison", "bin/m4", "prebuilts/tools-lineage/linux-x86/bin/perl", "prebuilts/build-tools/common/bison",
 		"prebuilts/tools-lineage/common/perl-base", `"$SYSROOT"; } > "$TMPDIR"/toolchain.id`,
 		`rm -rf "$MOD"/kbuild "$MOD"/modules_staging`, `stage "$TMPDIR"/toolchain.id "$MOD"/toolchain.id || die $?`,
+		"J=$(getconf _NPROCESSORS_ONLN)",
+		`"$MOD"/tools/dtc`, `"$MOD"/tools/depmod`, `"$MOD"/tools/perl`,
 		"MV=(ARCH=arm64 LLVM=1 LLVM_IAS=1 LEX=", "YACC=", "M4=", `DTC_EXT="$DTC"`, `"HOSTCFLAGS=--sysroot=$SYSROOT"`,
 		`"HOSTLDFLAGS=--sysroot=$SYSROOT -fuse-ld=lld --rtlib=compiler-rt"`, `"CRYPTO_CFLAGS=-I$T/external/boringssl/src/include"`,
 		`"CRYPTO_LIBS=$LIBCRYPTO -Wl,-rpath,$LIBCRYPTO_DIR" PAHOLE=)`, `"$MAKE" -j"$J"`,
-		`cp -p "$OBJ/.config"`, `configs/gki_defconfig "$OBJ"/.config`, "olddefconfig",
-		`( cd "$TMPDIR" && "$K"/scripts/kconfig/merge_config.sh -m -O "$OBJ" "$OBJ"/.config "$K"/arch/arm64/configs/one.config )`,
-		"olddefconfig", "configs/two.config", "olddefconfig", "touch -r", "CONFIG_MODULE_SIG=y",
+		`mkdir -p "$OBJ" || die $?`, `/config "$OBJ"/.config || die $?`,
 		`O="$OBJ" Image`, "-delete", `O="$OBJ" dtbs`,
 		`rm -rf "$STG" && mkdir -p "$STG"`, "^CONFIG_[A-Za-z0-9_]*=m$", `O="$OBJ" modules `,
 		`INSTALL_MOD_PATH="$STG" INSTALL_MOD_STRIP=1 modules_install`,
@@ -305,6 +303,24 @@ func TestKbuildRule(t *testing.T) {
 	if firstDie := regexp.MustCompile(`\bdie (\$\?|[0-9])`).FindStringIndex(script); firstDie == nil || hook < 0 || firstDie[0] < hook {
 		t.Errorf("die is called before the kbuild body defines its failure hook: hook at %d, first die at %v", hook, firstDie)
 	}
+
+	// The kconfig rule makes the configuration in an empty object tree and stages it at the output
+	// that the kbuild rule reads.
+	kconfig := m.Rule("kconfig")
+	containsAll(t, "kconfig inputs", strings.Join(kconfig.Implicits.Strings(), " "),
+		"/kconfig.sh", "/bin/clang", "prebuilts/build-tools/linux-x86/bin/make",
+		"configs/gki_defconfig", "configs/one.config", "configs/two.config")
+	if outputs := append(kconfig.ImplicitOutputs.Strings(), kconfig.Output.String()); !strings.HasSuffix(strings.Join(outputs, " "), "/config") {
+		t.Errorf("kconfig outputs: %v", outputs)
+	}
+	kconfigScript := ruleScript(t, result, m, "kconfig")
+	checkShellSyntax(t, "kconfig", kconfig.RuleParams.Command, kconfigScript)
+	inOrder(t, "kconfig steps", kconfigScript,
+		"NAME=kconfig", `OBJ="$MOD"/kconfig`, "J=$(getconf _NPROCESSORS_ONLN)", `"$MOD"/tools/perl`, "MV=(ARCH=arm64",
+		`{ rm -rf "$OBJ" && mkdir -p "$OBJ"; }`, `configs/gki_defconfig "$OBJ"/.config`, "olddefconfig",
+		`( cd "$TMPDIR" && "$K"/scripts/kconfig/merge_config.sh -m -O "$OBJ" "$OBJ"/.config "$K"/arch/arm64/configs/one.config )`,
+		"olddefconfig", "configs/two.config", "olddefconfig", "CONFIG_MODULE_SIG=y",
+		`write_depfile "$MOD"/kconfig.d`, `check_unchanged "$@"`, `stage "$OBJ"/.config`)
 
 	// No kernel_build module has a checkbuild file, and each has one variant.
 	if files := android.GetInstallFiles(result.OtherModuleProviderAdaptor(), m.Module()).CheckbuildFiles; len(files) != 0 {

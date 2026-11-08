@@ -1,8 +1,8 @@
 # build/custom
 
-Build-system glue for the product layer: Soong module types for kernels and for files chosen by
-screen density, and board_functions.mk with Make functions for board configurations. Product
-configuration lives in product/custom.
+Build-system glue for the product layer: Soong module types for kernels, for the garbage collector
+used by ART, and for files chosen by screen density, and board_functions.mk with Make functions for
+board configurations. Product configuration lives in product/custom.
 
 ## Building a kernel for a device
 
@@ -55,6 +55,11 @@ module copies every header installed by `headers_install` below `usr` and export
 module as generated headers: `headers` is the name of that module, and `dirs` lists the folders in
 the order in which they are exported, each a clean relative path listed once. It does not install
 any header itself.
+
+The output `.config` of a `kernel_build` module, such as `:Pong-kernel{.config}`, is the
+configuration used to build the kernel: the defconfig with every fragment merged into it. A separate
+rule makes it before the kernel build, so a rule that reads only the configuration does not wait for
+the kernel to compile. A `kernel_uapi_headers` module passes it on together with the headers.
 
 The kernel parts for Pong, as its device tree gives them:
 
@@ -162,6 +167,18 @@ copied without its git directory, or a checkout without a commit, fails the buil
 The kernel is built again when any file below `kernel_dir`, `extra_source_dirs` or
 `external_modules.root` changes, whether git tracks it or not: an editor's swap file written there
 makes the next build run the kernel's rules again, and one written while they run fails that build.
+
+## The userfaultfd garbage collector
+
+The module `uffd_gc_support` sets whether ART uses the userfaultfd GC, from the kernel of the
+`kernel_uapi_headers` module named by `kernel_headers`. ART uses it when the `.config` of that
+kernel sets `CONFIG_USERFAULTFD=y` and the user-space headers exported by that kernel define
+`UFFD_USER_MODE_ONLY`, `UFFD_FEATURE_SIGBUS` and `MREMAP_DONTUNMAP`. ART tests the same facts on the
+device in `art/runtime/gc/collector/mark_compact.cc`, and one more: whether `MREMAP_DONTUNMAP` works
+on a shared mapping, which neither the configuration nor the headers show. The decision becomes the
+dex2oat flag of dexpreopt and `ro.dalvik.vm.enable_uffd_gc` in the product build.prop. Without
+`BOARD_KERNEL_BUILD_MODULE`, building dexpreopt or the product build.prop fails with the error set
+by `generated_kernel_includes`, since only a kernel built in the tree can give the decision.
 
 ## Files chosen by screen density
 

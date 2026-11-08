@@ -59,6 +59,10 @@ const (
 	tagDtbo      = ".dtbo"
 )
 
+// ConfigTag is the tag of the output that contains the configuration used to build the kernel: the
+// defconfig with every fragment merged into it.
+const ConfigTag = ".config"
+
 // The values of dt_images.merge.
 const (
 	mergeQcom = "qcom"
@@ -562,11 +566,11 @@ func registerGoalPhonies(ctx android.ModuleContext, exportedToMake bool, files a
 
 // kernelOutputs are the files the module offers.
 type kernelOutputs struct {
-	image, systemMap, modules, dtbs, dtb, dtbo android.WritablePath
+	image, systemMap, config, modules, dtbs, dtb, dtbo android.WritablePath
 }
 
 func (o kernelOutputs) all() android.WritablePaths {
-	paths := android.WritablePaths{o.image, o.systemMap, o.modules}
+	paths := android.WritablePaths{o.image, o.systemMap, o.config, o.modules}
 	for _, p := range []android.WritablePath{o.dtbs, o.dtb, o.dtbo} {
 		if p != nil {
 			paths = append(paths, p)
@@ -585,6 +589,7 @@ func (k *kernelBuild) GenerateAndroidBuildActions(ctx android.ModuleContext) {
 	outs := kernelOutputs{
 		image:     android.PathForModuleOut(ctx, proptools.String(k.properties.Image)),
 		systemMap: android.PathForModuleOut(ctx, "System.map"),
+		config:    android.PathForModuleOut(ctx, "config"),
 		modules:   android.PathForModuleOut(ctx, "modules.zip"),
 	}
 	if k.dtImagesSet() {
@@ -623,6 +628,7 @@ func (k *kernelBuild) GenerateAndroidBuildActions(ctx android.ModuleContext) {
 	ctx.SetOutputFiles(android.Paths{outs.image}, "")
 	ctx.SetOutputFiles(android.Paths{outs.image}, tagKernel)
 	ctx.SetOutputFiles(android.Paths{outs.systemMap}, tagSystemMap)
+	ctx.SetOutputFiles(android.Paths{outs.config}, ConfigTag)
 	ctx.SetOutputFiles(android.Paths{outs.modules}, tagModules)
 	if k.dtImagesSet() {
 		ctx.SetOutputFiles(android.Paths{outs.dtbs}, tagDtbs)
