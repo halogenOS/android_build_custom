@@ -384,6 +384,7 @@ func (s *kbuildScript) setup() string {
 	w("KIC=%s\nKOF=%s\nSZ=%s\n", treeWord(s.inputCheck), treeWord(s.outputFiles), treeWord(s.soongZip))
 	b.WriteString(s.toolVariables())
 	w("OBJ=\"$MOD\"/kbuild/%s\n", shq(s.kernelDir()))
+	w("TID=\"$MOD\"/toolchain/%s.id\n", shq(s.kernelDir()))
 	w("STG=\"$MOD\"/modules_staging\n")
 
 	// The failure hook: once the run has marked itself, a failure with a status from 1 to 127
@@ -428,7 +429,8 @@ export KBUILD_BUILD_USER=build-user KBUILD_BUILD_HOST=build-host KBUILD_BUILD_VE
 export KBUILD_BUILD_TIMESTAMP="$timestamp"
 `)
 
-	// The toolchain identity: a change of it empties the object tree.
+	// The toolchain identity of each kernel source directory: a change of it empties the object
+	// tree of that directory only, so products with other kernels keep theirs.
 	b.WriteString("{ \"$CLANG\"/bin/clang --version && echo " + shq(s.arch()) + " && echo \"$T\" && echo " + shq(s.kernelDir()))
 	for _, e := range s.extraSourceDirs() {
 		b.WriteString(" && echo " + shq(e))
@@ -437,9 +439,10 @@ export KBUILD_BUILD_TIMESTAMP="$timestamp"
 	w(" && \"$KIC\" identity -cache \"$MOD\"/toolchain.hashes -link-targets \"$T\"/%s \"$CLANG\" \"$MAKE\""+
 		" \"$T\"/%s/flex \"$T\"/%s/bison \"$T\"/%s/m4 \"$T\"/%s \"$T\"/%s \"$T\"/%s \"$SYSROOT\"; } > \"$TMPDIR\"/toolchain.id || die $?\n",
 		buildToolsPath, buildToolsBin, buildToolsBin, buildToolsBin, perlPath, bisonData, perlBase)
-	b.WriteString(`if ! cmp -s "$TMPDIR"/toolchain.id "$MOD"/toolchain.id; then
-  rm -rf "$MOD"/kbuild "$MOD"/modules_staging || die $?
-  stage "$TMPDIR"/toolchain.id "$MOD"/toolchain.id || die $?
+	b.WriteString(`if ! cmp -s "$TMPDIR"/toolchain.id "$TID"; then
+  rm -rf "$OBJ" "$STG" || die $?
+  mkdir -p "${TID%/*}" || die $?
+  stage "$TMPDIR"/toolchain.id "$TID" || die $?
 fi
 `)
 	b.WriteString(s.makeSetup())
@@ -558,7 +561,7 @@ mkdir -p "$MOD"/zip || die $?
 	for _, l := range s.libraries {
 		allow = append(allow, treeWord(l))
 	}
-	b.WriteString(`"$KIC" check -make "$MAKE" -objdir "$OBJ" -srctree "$K" -scan "$MOD"/kbuild -top "$T" -reads "$MOD"/toolchain_reads.txt`)
+	b.WriteString(`"$KIC" check -make "$MAKE" -objdir "$OBJ" -srctree "$K" -scan "$OBJ" -top "$T" -reads "$MOD"/toolchain_reads.txt`)
 	w(" -next-step %s", shq(s.addSourceDir))
 	for _, a := range allow {
 		b.WriteString(" -allow " + a)
